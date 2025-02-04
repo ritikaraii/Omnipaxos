@@ -26,11 +26,14 @@ pub struct Network {
 
 impl Network {
     fn get_my_api_addr() -> String {
-        format!("net:800{}", *MY_PID)
+        format!("net.default.svc.cluster.local:800{}", *MY_PID)
     }
 
     fn get_peer_addr(receiver_pid: u64) -> String {
-        format!("net:80{}{}", *MY_PID, receiver_pid)
+        format!(
+            "net.default.svc.cluster.local:80{}{}",
+            *MY_PID, receiver_pid
+        )
     }
 
     /// Sends the message to the receiver.
@@ -67,7 +70,11 @@ impl Network {
         for pid in &peers {
             peer_addrs.insert(*pid, Self::get_peer_addr(*pid));
         }
-        let api_stream = TcpStream::connect(Self::get_my_api_addr()).await.unwrap();
+        println!("My API Addr: {}", Self::get_my_api_addr());
+        let err_msg = format!("Could not connect to API at {}", Self::get_my_api_addr());
+        let api_stream = TcpStream::connect(Self::get_my_api_addr())
+            .await
+            .expect(&err_msg);
         let (api_reader, api_writer) = api_stream.into_split();
         let api_socket = Some(api_writer);
         let incoming_msg_buf = Arc::new(Mutex::new(vec![]));
@@ -91,6 +98,7 @@ impl Network {
         let mut sockets = HashMap::new();
         for peer in &peers {
             let addr = peer_addrs.get(&peer).unwrap().clone();
+            println!("Connecting to {}", addr);
             let stream = TcpStream::connect(addr).await.unwrap();
             let (reader, writer) = stream.into_split();
             sockets.insert(*peer, writer);
