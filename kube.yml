@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kv-config
+data:
+  NODES: "[1, 2, 3]"
+  RUST_BACKTRACE: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: net
+  labels:
+    app: net
+spec:
+  clusterIP: None  # Headless service, no single IP
+  selector:
+    app: net  # This selector needs to match the label of the 'net' pod
+  ports:
+    - name: "8001"
+      port: 8001
+      targetPort: 8001
+    - port: 8002
+      targetPort: 8002
+      name: "8002"
+    - port: 8003
+      name: "8003"
+      targetPort: 8003
+      name: "8003"
+    - port: 8013
+      targetPort: 8013
+      name: "8013"
+    - port: 8012
+      targetPort: 8012
+      name: "8012"
+    - port: 8023
+      targetPort: 8023
+      name: "8023"
+    - port: 8021
+      targetPort: 8021
+      name: "8021"
+    - port: 8032
+      targetPort: 8032
+      name: "8032"
+    - port: 8031
+      targetPort: 8031
+      name: "8031"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: net
+  labels:
+    app: net
+spec:
+  containers:
+    - name: net
+      image: arejula27/kvs-network-actor 
+      stdin: true
+      tty: true
+      ports:
+        - containerPort: 8001
+        - containerPort: 8002
+        - containerPort: 8003
+        - containerPort: 8013
+        - containerPort: 8012
+        - containerPort: 8023
+        - containerPort: 8021
+        - containerPort: 8032
+        - containerPort: 8031
+
+      env:
+        - name: PORT_MAPPINGS
+          value: "[[8013,8031],[8012,8021],[8023,8032]]"
+        - name: CLIENT_PORTS
+          value: "[8001, 8002, 8003]"
+        - name: NODES  
+          valueFrom:
+            configMapKeyRef:
+              name: kv-config
+              key: NODES
+        - name: RUST_BACKTRACE
+          valueFrom:
+            configMapKeyRef:
+              name: kv-config
+              key: RUST_BACKTRACE
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kv-store
+spec:
+  serviceName: "kv-store"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kv-store
+  template:
+    metadata:
+      labels:
+        app: kv-store
+    spec:
+      containers:
+        - name: kv-store
+          image: arejula27/kvs # Replace with your actual image
+          imagePullPolicy: Always
+          env:
+            - name: NODES
+              valueFrom:
+                configMapKeyRef:
+                  name: kv-config
+                  key: NODES
+            - name: RUST_BACKTRACE
+              valueFrom:
+                configMapKeyRef:
+                  name: kv-config
+                  key: RUST_BACKTRACE
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["/bin/sh", "-c"]
+          args: ["export PID=$(echo $POD_NAME | sed 's/[^0-9]*\\([0-9]*\\)$/\\1/')&& PID=$((PID + 1)) && exec kv_demo"]
