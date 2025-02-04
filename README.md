@@ -10,6 +10,8 @@ We used the following:
 - Docker v.4.19.0 (for demo)
 - Rust 1.71.0 (for development)
 
+
+
 # Demos
 Build images and start containers in detached mode:
 ```bash
@@ -21,6 +23,17 @@ Attach to the client (`network-actor`) to send requests to the cluster:
 ```bash
 $ docker attach network-actor
 ```
+
+It is also possible to run with kubernetes:
+```bash
+$ kubectl create -f kube.yml 
+```
+Attach to the client (`network-actor`) to send requests to the cluster:
+```bash
+$ kubectl attach -it net
+```
+
+
 ### Client
 Example network-actor CLI command:
 ```
