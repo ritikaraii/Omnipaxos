@@ -21,29 +21,36 @@ pub async fn run() {
     for port in CLIENT_PORTS.iter() {
         let api_sockets = api_sockets.clone();
         tokio::spawn(async move {
-            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
-                .await
-                .unwrap();
-            let (socket, _addr) = listener.accept().await.unwrap();
-            let (reader, writer) = socket.into_split();
-            api_sockets.lock().await.insert(port, writer);
-            // receiver actor
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(reader);
-                loop {
-                    let mut data = vec![];
-                    let bytes_read = reader.read_until(b'\n', &mut data).await.unwrap();
-                    if bytes_read == 0 {
-                        // dropped socket EOF
-                        println!("{port} disconnected");
-                        api_sockets.lock().await.remove(port);
-                        break;
-                    }
-                    if let Ok(msg) = serde_json::from_slice::<Message>(&data) {
-                        println!("From {}: {:?}", port, msg); // TODO: handle APIResponse
-                    }
-                }
-            });
+            while true {
+                let api_sockets = api_sockets.clone();
+                let join_handler = tokio::spawn(async move {
+                    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+                        .await
+                        .unwrap();
+                    let (socket, _addr) = listener.accept().await.unwrap();
+                    let (reader, writer) = socket.into_split();
+                    api_sockets.lock().await.insert(port, writer);
+                    // receiver actor
+                    let join_reader = tokio::spawn(async move {
+                        let mut reader = BufReader::new(reader);
+                        loop {
+                            let mut data = vec![];
+                            let bytes_read = reader.read_until(b'\n', &mut data).await.unwrap();
+                            if bytes_read == 0 {
+                                // dropped socket EOF
+                                println!("{port} disconnected");
+                                api_sockets.lock().await.remove(port);
+                                break;
+                            }
+                            if let Ok(msg) = serde_json::from_slice::<Message>(&data) {
+                                println!("From {}: {:?}", port, msg); // TODO: handle APIResponse
+                            }
+                        }
+                    });
+                    join_reader.await.unwrap();
+                });
+                join_handler.await.unwrap();
+            }
         });
     }
 
@@ -112,35 +119,53 @@ pub async fn run() {
         let out_chans = out_channels.clone();
         let central_sender = central_sender.clone();
         tokio::spawn(async move {
-            let central_sender = central_sender.clone();
-            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
-                .await
-                .unwrap();
-            let (socket, _addr) = listener.accept().await.unwrap();
-            let (reader, mut writer) = socket.into_split();
-            // sender actor
-            let out_channels = out_chans.clone();
-            tokio::spawn(async move {
-                let mut receiver = out_channels.get(port).unwrap().clone().subscribe();
-                while let Ok(data) = receiver.recv().await {
-                    let _ = writer.write_all(&data).await;
-                }
-            });
-            // receiver actor
-            let central_sender = central_sender.clone();
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(reader);
-                loop {
-                    let mut data = vec![];
-                    reader.read_until(b'\n', &mut data).await.unwrap();
-                    if let Err(_e) = central_sender
-                        .send((port, PORT_MAPPINGS.get(port).unwrap(), data))
-                        .await
-                    {
-                        break;
-                    };
-                }
-            });
+            while true {
+                let join_handler = tokio::spawn({
+                    let central_sender = central_sender.clone(); // Clone inside the loop
+                    let out_chans = out_chans.clone(); // Clone inside the loop
+                    async move {
+                        let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+                            .await
+                            .unwrap();
+                        let (socket, _addr) = listener.accept().await.unwrap();
+                        let (reader, mut writer) = socket.into_split();
+
+                        // Sender actor
+                        let out_channels = out_chans.clone();
+                        tokio::spawn(async move {
+                            if let Some(sender) = out_channels.get(&port) {
+                                let mut receiver = sender.clone().subscribe();
+                                while let Ok(data) = receiver.recv().await {
+                                    let _ = writer.write_all(&data).await;
+                                }
+                            }
+                        });
+
+                        // Receiver actor
+                        let central_sender = central_sender.clone();
+                        let join_reader = tokio::spawn(async move {
+                            let mut reader = BufReader::new(reader);
+                            loop {
+                                let mut data = vec![];
+                                if let Ok(_) = reader.read_until(b'\n', &mut data).await {
+                                    if let Some(mapped_port) = PORT_MAPPINGS.get(&port) {
+                                        if let Err(_e) =
+                                            central_sender.send((port, *mapped_port, data)).await
+                                        {
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        });
+                        join_reader.await.unwrap();
+                    }
+                });
+
+                join_handler.await.unwrap();
+            }
         });
     }
 
@@ -148,11 +173,11 @@ pub async fn run() {
     while let Some((from_port, to_port, msg)) = central_receiver.recv().await {
         // drop message if network is partitioned between sender and receiver
         for (from, to, _probability) in partitions.lock().await.iter() {
-            if from == from_port && to == to_port {
+            if from == from_port && to == &to_port {
                 continue;
             }
         }
-        let sender = out_channels.get(to_port).unwrap().clone();
+        let sender = out_channels.get(&to_port).unwrap().clone();
         let _ = sender.send(msg);
     }
 }

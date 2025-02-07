@@ -27,24 +27,46 @@ spec:
       name: "8003"
       targetPort: 8003
       name: "8003"
+    - port: 8004
+      targetPort: 8004
+      name: "8004"
     - port: 8013
       targetPort: 8013
       name: "8013"
     - port: 8012
       targetPort: 8012
       name: "8012"
+    - port: 8014
+      targetPort: 8014
+      name: "8014"
     - port: 8023
       targetPort: 8023
       name: "8023"
     - port: 8021
       targetPort: 8021
       name: "8021"
+    - port: 8024
+      targetPort: 8024
+      name: "8024"
     - port: 8032
       targetPort: 8032
       name: "8032"
     - port: 8031
       targetPort: 8031
       name: "8031"
+    - port: 8034
+      targetPort: 8034
+      name: "8034"
+    - port: 8043
+      targetPort: 8043
+      name: "8043"
+    - port: 8041
+      targetPort: 8041
+      name: "8041"
+    - port: 8042
+      targetPort: 8042
+      name: "8042"
+
 ---
 apiVersion: v1
 kind: Pod
@@ -55,13 +77,15 @@ metadata:
 spec:
   containers:
     - name: net
-      image: arejula27/kvs-network-actor 
+      image: arejula27/kvs-network-actor:v1.3
+      imagePullPolicy: Always
       stdin: true
       tty: true
       ports:
         - containerPort: 8001
         - containerPort: 8002
         - containerPort: 8003
+        - containerPort: 8004
         - containerPort: 8013
         - containerPort: 8012
         - containerPort: 8023
@@ -71,9 +95,9 @@ spec:
 
       env:
         - name: PORT_MAPPINGS
-          value: "[[8013,8031],[8012,8021],[8023,8032]]"
+          value: "[[8013,8031],[8012,8021],[8023,8032], [8014, 8041], [8024, 8042], [8034, 8043]]"
         - name: CLIENT_PORTS
-          value: "[8001, 8002, 8003]"
+          value: "[8001, 8002, 8003, 8004]"
         - name: NODES  
           valueFrom:
             configMapKeyRef:
@@ -103,7 +127,7 @@ spec:
     spec:
       containers:
         - name: kv-store
-          image: arejula27/kvs # Replace with your actual image
+          image: arejula27/kvs:v1.1 # Replace with your actual image
           imagePullPolicy: Always
           env:
             - name: NODES
