@@ -23,6 +23,14 @@ pub struct Server {
 }
 
 impl Server {
+    pub async fn new(omni_paxos: OmniPaxosKV, db_path: &str) -> Self {
+        Self {
+            omni_paxos,
+            network: Network::new().await,
+            database: Database::new(db_path),
+            last_decided_idx: 0,
+        }
+    }
     async fn process_incoming_msgs(&mut self) {
         let messages = self.network.get_received().await;
         for msg in messages {

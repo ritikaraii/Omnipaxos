@@ -13,6 +13,7 @@ pub enum KVCommand {
     Put(KeyValue),
     Delete(String),
     Get(String),
+    NoOp,
 }
 
 impl Entry for KVCommand {
@@ -41,6 +42,7 @@ impl Snapshot<KVCommand> for KVSnapshot {
                     }
                 }
                 KVCommand::Get(_) => (),
+                KVCommand::NoOp => (),   // ✅ NoOp should not affect the snapshot
             }
         }
         // remove keys that were put back

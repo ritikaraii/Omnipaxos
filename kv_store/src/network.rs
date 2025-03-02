@@ -45,11 +45,23 @@ impl Network {
             self.sockets.get_mut(&receiver)
         };
         if let Some(writer) = writer {
-            let mut data = serde_json::to_vec(&msg).expect("could not serialize msg");
-            data.push(b'\n');
-            writer.write_all(&data).await.unwrap();
+            //let mut data = serde_json::to_vec(&msg).expect("could not serialize msg");
+           let msg_str = match serde_json::to_string(&msg) {
+            Ok(data) => data,
+            Err(e) => {
+                println!("❌ ERROR: Failed to serialize message: {:?}", e);
+                return;
+            }
+        };
+        let mut data = msg_str.into_bytes();
+        data.push(b'\n');
+
+        // ✅ Send the serialized message
+        if let Err(e) = writer.write_all(&data).await {
+            println!("❌ ERROR: Failed to send message: {:?}", e);
         }
     }
+}
 
     /// Returns all messages received since last called.
     pub(crate) async fn get_received(&mut self) -> Vec<Message> {
