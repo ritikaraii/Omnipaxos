@@ -4,6 +4,7 @@ metadata:
   name: kv-config
 data:
   NODES: "[1, 2, 3]"
+  CONFIG_ID: "1"
   RUST_BACKTRACE: "1"
 ---
 apiVersion: v1
@@ -30,7 +31,7 @@ metadata:
 spec:
   clusterIP: None  # Headless service, no single IP
   selector:
-    app: net  # This selector needs to match the label of the 'net' pod
+    app: net
   ports:
     - name: "8001"
       port: 8001
@@ -120,6 +121,13 @@ spec:
             configMapKeyRef:
               name: kv-config
               key: RUST_BACKTRACE
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -139,7 +147,7 @@ spec:
       restartPolicy: Always  # Ensures pod restarts instead of fresh creation
       containers:
         - name: kv-store
-          image: ritikaanand/kvs:v4.1  # Replace with your actual image
+          image: ritikaanand/kvsdemo:v3.8  # Replace with your actual image
           imagePullPolicy: Always
           env:
             - name: NODES
@@ -156,14 +164,25 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: CONFIG_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: kv-config
+                  key: CONFIG_ID
           command: ["/bin/sh", "-c"]
-          # As the program does not allow to have PID=0, we need to increment the PID by 1
           args: ["export PID=$(echo $POD_NAME | sed 's/[^0-9]*\\([0-9]*\\)$/\\1/') && PID=$((PID + 1)) && exec kv_demo"]
           ports:
             - containerPort: 8080
           volumeMounts:
             - name: omnipaxos-storage
               mountPath: /data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
   volumeClaimTemplates:
     - metadata:
         name: omnipaxos-storage

@@ -30,6 +30,14 @@ lazy_static! {
         }
         x
     };
+    pub static ref CONFIG_ID: u32 = {
+        let var = env::var("CONFIG_ID").expect("Missing Config_Id environment variable");
+        let x = var.parse().expect("Config IDs must be u64");
+        if x == 0 {
+            panic!("Configs cannot be 0");
+        }
+        x
+    };
 }
 
 // ✅ Define PersistentStorage type
@@ -37,7 +45,7 @@ type OmniPaxosKV = OmniPaxos<KVCommand, PersistentStorage<KVCommand>>;
 
 #[tokio::main]
 async fn main() {
-    println!("🔄 Starting server with PID {}", *PID);
+    println!(" Starting server with PID {}", *PID);
 
     let server_config = ServerConfig {
         pid: *PID,
@@ -46,7 +54,7 @@ async fn main() {
     };
 
     let cluster_config = ClusterConfig {
-        configuration_id: 1,
+        configuration_id: (*CONFIG_ID).clone(),
         nodes: (*NODES).clone(),
         ..Default::default()
     };
@@ -70,101 +78,49 @@ async fn main() {
     }
 
     remove_lock_file(&storage_path);
-    remove_lock_file(db_path);
+    remove_lock_file(&db_path);
 
-    // ✅ Manually check if PersistentStorage fails without using `Err` or `Ok`
-    let persistent_storage_primary = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
 
-    let persistent_storage = if let PersistentStorage { .. } = persistent_storage_primary {
-        println!("✅ Primary PersistentStorage opened successfully.");
-        persistent_storage_primary
-    } else {
-        println!("⚠️ WARNING: Primary storage failed, switching to backup...");
-        let persistent_storage_backup = PersistentStorage::open(PersistentStorageConfig::with_path(backup_path.clone()));
-        if let PersistentStorage { .. } = persistent_storage_backup {
-            println!("✅ Backup PersistentStorage opened successfully.");
-            persistent_storage_backup
-        } else {
-            panic!("❌ CRITICAL: Failed to open both primary and backup PersistentStorage!");
-        }
-    };
+    let mut persistent_storage;
+loop {
+    persistent_storage = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
+    if let PersistentStorage { .. } = persistent_storage {
+        println!("✅ PersistentStorage initialized successfully.");
+        break;
+    }
+    println!("⚠️ WARNING: PersistentStorage failed to open. Retrying in 5 seconds...");
+    std::thread::sleep(std::time::Duration::from_secs(5));
+}
+
+    // // ✅ Manually check if PersistentStorage fails without using `Err` or `Ok`
+    // let persistent_storage_primary = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
+
+    //  persistent_storage = if let PersistentStorage { .. } = persistent_storage_primary {
+    //     println!("✅ Primary PersistentStorage opened successfully.");
+    //     persistent_storage_primary
+    // } else {
+    //     println!("⚠️ WARNING: Primary storage failed...");
+       
+    //         panic!(" CRITICAL: Failed to open both primary PersistentStorage!");
+        
+    // };
 
     println!("✅ PersistentStorage initialized successfully.");
 
-    // ✅ Initialize OmniPaxos and Ensure Cluster Recovery
+    //  Initialize OmniPaxos and Ensure Cluster Recovery
     let omni_paxos_result = op_config.clone().build(persistent_storage);
 
     if let Ok(omni_paxos) = omni_paxos_result {
-        // ✅ Use Arc<Mutex<T>> to allow multiple async tasks to access `server`
+        //  Use Arc<Mutex<T>> to allow multiple async tasks to access `server`
         let server = Arc::new(Mutex::new(Server::new(omni_paxos, db_path).await));
 
-        // ✅ Clone `server` to avoid move issues
-        let server_clone = Arc::clone(&server);
-
-        tokio::spawn(async move {
-            loop {
-                let decided_idx;
-                let last_decided_idx;
-                let leader;
-
-                {
-                    let server_guard = server_clone.lock().await;
-                    decided_idx = server_guard.omni_paxos.get_decided_idx();
-                    last_decided_idx = server_guard.last_decided_idx as usize;
-                    leader = server_guard.omni_paxos.get_current_leader();
-                }
-
-                // ✅ Ensure logs are in sync
-                if decided_idx < last_decided_idx {
-                    println!("⚠️ Node is behind, requesting missing logs...");
-                    let mut server_guard = server_clone.lock().await;
-                    server_guard
-                        .omni_paxos
-                        .trim(Some(last_decided_idx))
-                        .expect("Trim failed!");
-                }
-
-                // ✅ Verify Persistent Storage on Restart
-                {
-                    let server_guard = server_clone.lock().await;
-                    let decided_idx = server_guard.omni_paxos.get_decided_idx();
-
-                    if decided_idx == 0 {
-                        println!("🔄 Persistent Storage is empty! Restoring logs...");
-                        let mut server_guard = server_clone.lock().await;
-                        server_guard
-                            .omni_paxos
-                            .trim(Some(last_decided_idx))
-                            .expect("Failed to restore Persistent Storage");
-                    }
-                }
-
-                // ✅ Handle Leader Election If Missing
-                if leader.is_none() {
-                    println!("❌ No leader detected! Initiating recovery...");
-
-                    // ✅ Remove lock file to allow restart
-                    remove_lock_file(&storage_path);
-
-                    // ✅ Instead of `trigger_election()`, we force a no-op update
-                    // ✅ Ensure a leader is elected
-                    let mut server_guard = server_clone.lock().await;
-                    println!("⚠️ No leader detected! Initiating recovery...");
-
-                    // Append a no-op command to trigger communication and election
-                    server_guard
-                        .omni_paxos
-                        .append(KVCommand::NoOp)
-                        .expect("Failed to trigger leader election");
-                }
-
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            }
-        });
-
-        // ✅ Start the server
+        
+         //  Start the server
         server.lock().await.run().await;
     } else {
-        panic!("❌ Failed to initialize OmniPaxos!");
+        if let Err(e) = omni_paxos_result {
+            println!("Failed to initialize OmniPaxos: {:?}", e);
+	    
+        }
     }
 }

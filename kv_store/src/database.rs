@@ -25,10 +25,7 @@ impl Database {
                 None
             }
             KVCommand::Get(key) => self.get(key.as_str()),
-            KVCommand::NoOp => {
-                println!("Received NoOp command, ignoring...");
-                None // ✅ Explicitly return None for NoOp
-            }
+            _ => unimplemented!(),
         }
     }
 
