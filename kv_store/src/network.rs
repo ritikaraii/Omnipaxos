@@ -1,6 +1,5 @@
 use omnipaxos::messages::Message as OPMessage;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +9,9 @@ use tokio::{
     sync::Mutex,
     time::{timeout, Duration}
 };
+
+use std::io::ErrorKind;
+
 use crate::{kv::KVCommand, server::APIResponse, NODES, PID as MY_PID};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,12 +49,10 @@ impl Network {
         };
         if let Some(writer) = writer {
             let mut data = serde_json::to_vec(&msg).expect("could not serialize msg");
-           
-        data.push(b'\n');
-
-        writer.write_all(&data).await.unwrap();
+            data.push(b'\n');
+            writer.write_all(&data).await.unwrap();
+        }
     }
-}
 
     /// Returns all messages received since last called.
     pub(crate) async fn get_received(&mut self) -> Vec<Message> {
@@ -114,36 +114,34 @@ impl Network {
             let (reader, writer) = stream.into_split();
             sockets.insert(*peer, writer);
             let msg_buf = incoming_msg_buf.clone();
-	        let clone_peer = peer.clone();
+            let cloning = peer.clone();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(reader);
                 let mut data = Vec::new();
                 loop {
                     data.clear();
-                    println!("🔄 Waiting to receive data from {}", clone_peer);
 
                     let timeout_duration = tokio::time::Duration::from_secs(5);
                     match tokio::time::timeout(timeout_duration, reader.read_until(b'\n', &mut data)).await {
-                        // The connection was closed (zero bytes read)
                         Ok(Ok(0)) => {
-                            println!(" Connection lost with {}. Attempting to reconnect...", clone_peer);
+                            println!("Connection might be lost with {} , reconnecting with the peers ", cloning);
                             break;
                         }
-                        // Successfully read data
+                        
                         Ok(Ok(_)) => {
-                            println!("Stream alive with {}", clone_peer);
+                           
                             if let Ok(msg) = serde_json::from_slice::<Message>(&data) {
                                 msg_buf.lock().await.push(msg);
                             }
                         }
-                        // Error reading data
+                        
                         Ok(Err(e)) => {
-                            println!("Error reading from {}: {}", clone_peer, e);
+                            println!("Error reading from {}: {}", cloning, e);
                             break;
                         }
-                        // Timeout occurred
+                    
                         Err(_) => {
-                            println!("Timeout waiting for data from {}", clone_peer);
+                            println!("Timeout waiting for data from {}", cloning);
                         }
                     }
                 }

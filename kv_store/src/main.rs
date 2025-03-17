@@ -65,9 +65,9 @@ async fn main() {
     };
 
     // ✅ Prevent RocksDB Lock Errors
-    let storage_path = format!("/data/omnipaxos_storage_{}", *PID);
-    let backup_path = format!("/data/omnipaxos_storage_backup_{}", *PID);
-    let db_path = "/data/db";
+    let storage_path = format!("/data/omnipaxos_storage_{}_{}", *PID, *CONFIG_ID);
+    //let backup_path = format!("/data/omnipaxos_storage_backup_{}", *PID);
+    let db_path = format!("data/db{}",*CONFIG_ID);
 
     fn remove_lock_file(path: &str) {
         let lock_file = format!("{}/LOCK", path);
@@ -112,7 +112,7 @@ loop {
 
     if let Ok(omni_paxos) = omni_paxos_result {
         //  Use Arc<Mutex<T>> to allow multiple async tasks to access `server`
-        let server = Arc::new(Mutex::new(Server::new(omni_paxos, db_path).await));
+        let server = Arc::new(Mutex::new(Server::new(omni_paxos, &db_path).await));
 
         
          //  Start the server
