@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: kv-config
 data:
-  NODES: "[1, 2, 3]"
+  NODES: "[1, 2, 3, 4]"
   CONFIG_ID: "1"
   RUST_BACKTRACE: "1"
 ---
@@ -81,6 +81,18 @@ spec:
     - name: "8043"
       port: 8043
       targetPort: 8043
+    - name: "8051"
+      port: 8051
+      targetPort: 8051
+    - name: "8052"
+      port: 8052
+      targetPort: 8052
+    - name: "8053"
+      port: 8053
+      targetPort: 8053
+    - name: "8054"
+      port: 8054
+      targetPort: 8054
 ---
 apiVersion: v1
 kind: Pod
@@ -106,6 +118,14 @@ spec:
         - containerPort: 8021
         - containerPort: 8032
         - containerPort: 8031
+        - containerPort: 8045
+        - containerPort: 8043
+        - containerPort: 8042
+        - containerPort: 8041
+        - containerPort: 8054
+        - containerPort: 8053
+        - containerPort: 8052
+        - containerPort: 8051
       env:
         - name: PORT_MAPPINGS
           value: "[[8013,8031],[8012,8021],[8023,8032],[8014,8041],[8024,8042],[8034,8043]]"
@@ -147,7 +167,7 @@ spec:
       restartPolicy: Always  # Ensures pod restarts instead of fresh creation
       containers:
         - name: kv-store
-          image: ritikaanand/kvsdemo:v10.1  # Replace with your actual image
+          image: ritikaanand/kvsdemo:v11.2  # Replace with your actual image
           imagePullPolicy: Always
           env:
             - name: NODES
@@ -193,6 +213,7 @@ spec:
           requests:
             storage: 11Gi
 ---
+# RBAC Configuration for StatefulSets Access
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

@@ -123,7 +123,7 @@ impl Trigger {
         let client = match Client::try_default().await {
             Ok(c) => c,
             Err(e) => {
-                println!("❌ Failed to create Kubernetes client: {:?}", e);
+                println!(" Failed to create Kubernetes client: {:?}", e);
                 return None;
             }
         };
@@ -132,32 +132,36 @@ impl Trigger {
         let pod_list = match pods.list(&ListParams::default()).await {
             Ok(p) => p,
             Err(e) => {
-                println!("❌ Failed to list pods: {:?}", e);
+                println!(" Failed to list pods: {:?}", e);
                 return None;
             }
         };
 
-        let mut max_pid = *NODES.iter().max().unwrap_or(&0);
+        //let mut max_pid = *NODES.iter().max().unwrap_or(&0);#
+        let pods: Vec<u64> = NODES
+        .iter()
+        .filter(|pid| **pid != *PID)
+        .cloned()
+        .collect();
         let mut detected_pid = None;
 
         for pod in pod_list.items {
             if let Some(pod_name) = pod.metadata.name {
-                if pod_name.starts_with("kv-store") {
+                if pod_name.starts_with("kv-store") && *pod_name != format!("kv-store-{}", *PID - 1) {
                     let parts: Vec<&str> = pod_name.split('-').collect();
                     if parts.len() < 3 {
-                        println!("⚠️ Skipping pod {}: Invalid name format", pod_name);
+                        println!(" Skipping pod {}: Invalid name format", pod_name);
                         continue;
                     }
                     
                     if let Ok(parsed_pid) = parts[2].parse::<u64>() {
-                        let new_pid = parsed_pid + 1; // Adjust PID to be 1-based
-                        if new_pid > max_pid && !NODES.contains(&new_pid) {
-                            println!("✅ Detected new pod: {} with PID {}", pod_name, new_pid);
-                            max_pid = new_pid;
+                        let new_pid = parsed_pid + 1 ; // Adjust PID to be 1-based
+                        if pods.contains(&new_pid) {
+                            println!(" Detected new pod: {} with PID {}", pod_name, new_pid);
                             detected_pid = Some(new_pid);
                         }
                     } else {
-                        println!("⚠️ Failed to parse PID from pod name: {}", pod_name);
+                        println!(" Failed to parse PID from pod name: {}", pod_name);
                     }
                 }
             }
@@ -171,38 +175,39 @@ impl Trigger {
         loop {
             match Self::poll_for_new_pod().await {
                 Some(new_pid) => {
-                    println!("🚀 New pod detected with PID {}. Initiating reconfiguration...", new_pid);
+                    println!(" New pod detected with PID {}. Initiating reconfiguration...", new_pid);
+    
                     let mut updated_nodes = NODES.clone();
                     
                     if !updated_nodes.contains(&new_pid) {
                         updated_nodes.push(new_pid);
-                        println!("Node added {} to NODES: {:?}", new_pid, updated_nodes);
+                        println!(" Node {} added to cluster: {:?}", new_pid, updated_nodes);
                     } else {
-                        println!("Node {} already exists in NODES", new_pid);
+                        println!(" Node {} already exists in cluster.", new_pid);
                     }
-                   
-                    let updated_nodes_clone = updated_nodes.clone(); 
+    
+                    let updated_nodes_clone = updated_nodes.clone(); // Fix Borrowing Issue
                     let new_config_id = *CONFIG_ID + 1; 
-
+    
                     let new_cluster = ClusterConfig {
                         configuration_id: new_config_id,
-                        nodes: updated_nodes,
+                        nodes: updated_nodes_clone,
                         ..Default::default()
                     };
-
+    
                     match server.omni_paxos.reconfigure(new_cluster, None) {
                         Ok(_) => {
-                            println!("✅ Reconfiguration successful! New nodes: {:?}", updated_nodes_clone);
-                            server.request_log_sync_from_leader().await; // Ensure sync after reconfig
+                            println!(" Reconfiguration successful! New nodes: " );
+                            server.request_log_sync_from_leader().await; // Ensure logs sync after reconfig
                         }
-                        Err(e) => println!("❌ Reconfiguration failed: {:?}", e),
+                        Err(e) => println!(" Reconfiguration failed: {:?}", e),
                     }
                 }
                 None => {
-                    println!("🔄 No new pods detected. Retrying in 5 seconds...");
+                    println!(" No new pods detected. Retrying in 5 seconds...");
                 }
             }
-
+    
             sleep(Duration::from_secs(5)).await;
         }
     }

@@ -119,28 +119,25 @@ impl Network {
                 let mut data = Vec::new();
                 loop {
                     data.clear();
-
                     let timeout_duration = tokio::time::Duration::from_secs(5);
                     match tokio::time::timeout(timeout_duration, reader.read_until(b'\n', &mut data)).await {
                         Ok(Ok(0)) => {
                             println!("Connection might be lost with {} , reconnecting with the peers ", cloning);
                             break;
                         }
-                        
                         Ok(Ok(_)) => {
                            
                             if let Ok(msg) = serde_json::from_slice::<Message>(&data) {
                                 msg_buf.lock().await.push(msg);
                             }
                         }
-                        
+                    
                         Ok(Err(e)) => {
                             println!("Error reading from {}: {}", cloning, e);
                             break;
-                        }
-                    
+                        }                   
                         Err(_) => {
-                            println!("Timeout waiting for data from {}", cloning);
+                            println!("Time out {}", cloning);
                         }
                     }
                 }

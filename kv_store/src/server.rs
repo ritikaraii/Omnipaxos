@@ -7,11 +7,11 @@ use crate::{
     PID as MY_PID,
     CONFIG_ID
 };
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::{env, fs};
-use tokio::sync::Mutex;
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use omnipaxos::{ClusterConfig, ServerConfig};
 use omnipaxos::storage::StopSign;
@@ -153,34 +153,28 @@ impl Server {
         if let Some((leader_id, _)) = self.omni_paxos.get_current_leader() {
             if leader_id != *MY_PID {
                 println!(" Requesting log sync from leader node: {}", leader_id);
-                self.omni_paxos.reconnected(leader_id);
-                self.omni_paxos.reconnected(*MY_PID);
-    
-                let mut retries = 10; // Retry up to 10 times
-                while retries > 0 {
-                    tokio::time::sleep(Duration::from_millis(100)).await; // Shorter wait
-    
-                    let new_decided_idx = self.omni_paxos.get_decided_idx();
-                    if new_decided_idx > self.last_decided_idx as usize {
-                        println!(
-                            " Logs successfully synced! New index: {} (previous: {})",
-                            new_decided_idx, self.last_decided_idx
-                        );
-                        self.last_decided_idx = new_decided_idx as u64;
+                
+                // Request logs and retry if necessary
+                for _ in 0..5 {
+                    self.omni_paxos.reconnected(leader_id);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    
+                    let new_idx = self.omni_paxos.get_decided_idx();
+                    if new_idx > self.last_decided_idx as usize {
+                        println!(" Logs successfully synced! New index: {} (previous: {})", new_idx, self.last_decided_idx);
+                        self.last_decided_idx = new_idx as u64;
                         return;
                     }
-    
-                    retries -= 1;
                 }
-                println!("⚠️ Log sync timed out after multiple attempts.");
+                println!(" Log sync failed after multiple attempts. Node may be out of sync.");
             } else {
-                println!("⚡ Node {} is the leader, ensuring log consistency...", *MY_PID);
+                println!("Node {} is the leader, ensuring log consistency", *MY_PID);
                 if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
-                    println!("⚠️ Failed to trim logs: {:?}", e);
+                    println!("Failed to trim logs: {:?}", e);
                 }
             }
         } else {
-            println!("⚠️ No leader detected. Retrying in 5 seconds...");
+            println!(" No leader detected. Retrying in 5 seconds...");
             tokio::time::sleep(Duration::from_secs(5)).await;
             self.omni_paxos.reconnected(*MY_PID);
         }
@@ -189,28 +183,41 @@ impl Server {
     
 
     async fn handle_decided_entries(&mut self) {
-        let new_decided_idx = self.omni_paxos.get_decided_idx();
+        // let new_decided_idx = self.omni_paxos.get_decided_idx();
     
-        if self.last_decided_idx < new_decided_idx as u64 {
-            println!(
-                "🔹 New decided index: {} (last_decided_idx: {})",
-                new_decided_idx, self.last_decided_idx
-            );
+        // if self.last_decided_idx < new_decided_idx as u64 {
+        //     println!(
+        //         "🔹 New decided index: {} (last_decided_idx: {})",
+        //         new_decided_idx, self.last_decided_idx
+        //     );
+    
+        //     if let Some(decided_entries) = self.omni_paxos.read_decided_suffix(self.last_decided_idx as usize) {
+        //         println!(" Applying missing decided entries: {:?}", decided_entries);
+        //         self.update_database(decided_entries);
+        //     } else {
+        //         println!(" No decided entries found. Attempting log recovery...");
+    
+        //         if let Some(all_entries) = self.omni_paxos.read_entries(0..self.last_decided_idx as usize) {
+        //             println!(" Recovering logs from storage...");
+        //             self.update_database(all_entries);
+        //         } else {
+        //             println!(" No logs found. Requesting sync from leader...");
+        //             self.request_log_sync_from_leader().await;
+        //         }
+        //     }
+        let new_decided_idx = self.omni_paxos.get_decided_idx();
+
+        if self.last_decided_idx < new_decided_idx  as u64{
+            println!(" New decided index: {} (last_decided_idx: {})", new_decided_idx, self.last_decided_idx);
     
             if let Some(decided_entries) = self.omni_paxos.read_decided_suffix(self.last_decided_idx as usize) {
-                println!("📝 Applying missing decided entries: {:?}", decided_entries);
+                println!("Applying decided entries: {:?}", decided_entries);
                 self.update_database(decided_entries);
             } else {
-                println!("❌ No decided entries found. Attempting log recovery...");
-    
-                if let Some(all_entries) = self.omni_paxos.read_entries(0..self.last_decided_idx as usize) {
-                    println!("🔄 Recovering logs from storage...");
-                    self.update_database(all_entries);
-                } else {
-                    println!("🚨 No logs found. Requesting sync from leader...");
-                    self.request_log_sync_from_leader().await;
-                }
+                println!("No decided entries found. Requesting log recovery...");
+                self.request_log_sync_from_leader().await;
             }
+    
     
             self.last_decided_idx = new_decided_idx as u64;
             let msg = Message::APIResponse(APIResponse::Decided(new_decided_idx as u64));
@@ -219,16 +226,16 @@ impl Server {
     
         if new_decided_idx % 5 == 0 {
             match self.omni_paxos.read_decided_suffix(0) {
-                Some(log) => println!("📝 Log before snapshot: {:?}", log),
-                None => println!("⚠️ No logs found before snapshot."),
+                Some(log) => println!("Log before snapshot: {:?}", log),
+                None => println!(" No logs found before snapshot."),
             }
             self.omni_paxos
                 .snapshot(Some(new_decided_idx), true)
-                .expect("❌ Failed to snapshot");
+                .expect("Failed to snapshot");
     
             match self.omni_paxos.read_decided_suffix(0) {
-                Some(log) => println!("✅ Log after snapshot: {:?}", log),
-                None => println!("⚠️ No logs found after snapshot."),
+                Some(log) => println!(" Log after snapshot: {:?}", log),
+                None => println!(" No logs found after snapshot."),
             }
         }
     }
@@ -310,8 +317,7 @@ impl Server {
                 self.last_decided_idx = 0;
                 self.current_heartbeats.clear();   
                 self.expired_nodes.clear();
-                println!("Requesting log sync after reconfiguration...");
-                //self.omni_paxos.reconnected(*MY_PID);
+                self.omni_paxos.reconnected(*MY_PID);
                 self.resume();
                 println!("restarting process to load new config...");
                 std::process::exit(1);
@@ -325,7 +331,7 @@ impl Server {
         let mut msg_interval = time::interval(Duration::from_millis(1));
         let mut tick_interval = time::interval(Duration::from_millis(10));
 
-         // 🚀 Ensure all nodes sync on startup
+         //Ensure all nodes sync on startup
         self.request_log_sync_from_leader().await;
 
         while self.running.load(std::sync::atomic::Ordering::Relaxed) {
