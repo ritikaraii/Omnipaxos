@@ -7,14 +7,11 @@ use crate::{
     PID as MY_PID,
     CONFIG_ID
 };
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::thread::current;
 use std::{env, fs};
 use tokio::sync::Mutex;
-use omnipaxos::messages::ballot_leader_election::*;
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use omnipaxos::{ClusterConfig, ServerConfig};
 use omnipaxos::storage::StopSign;
@@ -40,6 +37,8 @@ pub struct Server {
     pub current_heartbeats: HashMap<u64, Instant>,
     pub expired_nodes: HashSet<u64>,
     pub running: Arc<AtomicBool>,
+   
+    //pub trigger: Trigger,
     
 }
 
@@ -53,6 +52,8 @@ impl Server {
             current_heartbeats: HashMap::new(),
             expired_nodes: HashSet::new(),
             running: Arc::new(AtomicBool::new(true))
+            //trigger: Trigger::new().await,
+       
             
         }
     }
@@ -114,6 +115,7 @@ impl Server {
         }
     }
 
+
     async fn send_outgoing_msgs(&mut self) {
         let messages = self.omni_paxos.outgoing_messages();
         for msg in messages {
@@ -124,62 +126,115 @@ impl Server {
         }
     }
 
-    async fn handle_decided_entries(&mut self) {
-        let new_decided_idx = self.omni_paxos.get_decided_idx();
-        if new_decided_idx == 0 {
-            println!(" Leader is stuck at Decided(0). This may indicate no commands are being committed.");
-            return;
-        }
+    // async fn request_log_sync_from_leader(&mut self) {
+    //     if let Some((leader_id, _)) = self.omni_paxos.get_current_leader() {
+    //         if leader_id != *MY_PID {
+    //             println!("Requesting log sync from leader node: {}", leader_id);
+                
+    //             // Explicitly request missing logs
+    //             self.omni_paxos.reconnected(leader_id);
     
-        if self.last_decided_idx < new_decided_idx as u64 {
-            println!(" New decided index: {} (last_decided_idx: {})", new_decided_idx, self.last_decided_idx);
+    //             // Ensure reconnected state
+    //             self.omni_paxos.reconnected(*MY_PID);
+    //         } else {
+    //             println!("Node {} is the leader, ensuring log consistency", *MY_PID);
+    //             if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
+    //                 println!("Failed to trim logs: {:?}", e);
+    //             }
+    //         }
+    //     } else {
+    //         println!("No leader detected. Retrying in 5 seconds...");
+    //         tokio::time::sleep(Duration::from_secs(5)).await;
+    //         self.omni_paxos.reconnected(*MY_PID);
+    //     }
+    // }
     
-            if let Some(decided_entries) = self.omni_paxos.read_decided_suffix(self.last_decided_idx as usize) {
-                println!(" Applying missing decided entries: {:?}", decided_entries);
-                self.update_database(decided_entries);
-            } else {
-                println!(" No decided entries found at index {}. Requesting log sync...", self.last_decided_idx);
+    pub async fn request_log_sync_from_leader(&mut self) {
+        if let Some((leader_id, _)) = self.omni_paxos.get_current_leader() {
+            if leader_id != *MY_PID {
+                println!(" Requesting log sync from leader node: {}", leader_id);
+                self.omni_paxos.reconnected(leader_id);
+                self.omni_paxos.reconnected(*MY_PID);
     
-                if self.omni_paxos.get_current_leader().map(|(leader_id, _)| leader_id) == Some(*MY_PID) {
-                    println!(" Node is the leader, attempting log sync...");
-                    if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
-                        println!(" Log sync failed: {:?}. Skipping trim...", e);
+                let mut retries = 10; // Retry up to 10 times
+                while retries > 0 {
+                    tokio::time::sleep(Duration::from_millis(100)).await; // Shorter wait
+    
+                    let new_decided_idx = self.omni_paxos.get_decided_idx();
+                    if new_decided_idx > self.last_decided_idx as usize {
+                        println!(
+                            " Logs successfully synced! New index: {} (previous: {})",
+                            new_decided_idx, self.last_decided_idx
+                        );
+                        self.last_decided_idx = new_decided_idx as u64;
+                        return;
                     }
-                } else {
-                    println!(" Node {} is not the leader! Requesting missing logs from leader...", *MY_PID);
-                    self.omni_paxos.reconnected(*MY_PID);
+    
+                    retries -= 1;
+                }
+                println!("⚠️ Log sync timed out after multiple attempts.");
+            } else {
+                println!("⚡ Node {} is the leader, ensuring log consistency...", *MY_PID);
+                if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
+                    println!("⚠️ Failed to trim logs: {:?}", e);
                 }
             }
+        } else {
+            println!("⚠️ No leader detected. Retrying in 5 seconds...");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            self.omni_paxos.reconnected(*MY_PID);
+        }
+    }
+    
+    
+
+    async fn handle_decided_entries(&mut self) {
+        let new_decided_idx = self.omni_paxos.get_decided_idx();
+    
+        if self.last_decided_idx < new_decided_idx as u64 {
+            println!(
+                "🔹 New decided index: {} (last_decided_idx: {})",
+                new_decided_idx, self.last_decided_idx
+            );
+    
+            if let Some(decided_entries) = self.omni_paxos.read_decided_suffix(self.last_decided_idx as usize) {
+                println!("📝 Applying missing decided entries: {:?}", decided_entries);
+                self.update_database(decided_entries);
+            } else {
+                println!("❌ No decided entries found. Attempting log recovery...");
+    
+                if let Some(all_entries) = self.omni_paxos.read_entries(0..self.last_decided_idx as usize) {
+                    println!("🔄 Recovering logs from storage...");
+                    self.update_database(all_entries);
+                } else {
+                    println!("🚨 No logs found. Requesting sync from leader...");
+                    self.request_log_sync_from_leader().await;
+                }
+            }
+    
             self.last_decided_idx = new_decided_idx as u64;
-    
-            // if self.omni_paxos.get_decided_idx() > 0 {
-            //     println!(" Ensuring logs are synced before trimming...");
-            //     if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
-            //         println!(" Log trim failed: {:?}. Skipping trimming...", e);
-            //     }
-            // } else {
-            //     println!(" Leader is stuck at Decided(0), skipping log trim.");
-            // }
-    
             let msg = Message::APIResponse(APIResponse::Decided(new_decided_idx as u64));
             self.network.send(0, msg).await;
         }
     
         if new_decided_idx % 5 == 0 {
             match self.omni_paxos.read_decided_suffix(0) {
-                Some(log) => println!(" Log before snapshot: {:?}", log),
-                None => println!(" No logs found before snapshot."),
+                Some(log) => println!("📝 Log before snapshot: {:?}", log),
+                None => println!("⚠️ No logs found before snapshot."),
             }
             self.omni_paxos
                 .snapshot(Some(new_decided_idx), true)
-                .expect("Failed to snapshot");
-		
+                .expect("❌ Failed to snapshot");
+    
             match self.omni_paxos.read_decided_suffix(0) {
-                Some(log) => println!(" Log after snapshot: {:?}", log),
-                None => println!(" No logs found after snapshot."),
+                Some(log) => println!("✅ Log after snapshot: {:?}", log),
+                None => println!("⚠️ No logs found after snapshot."),
             }
         }
     }
+    
+    
+    
     
     fn update_database(&mut self, decided_entries: Vec<LogEntry<KVCommand>>) {
         for entry in decided_entries {
@@ -200,9 +255,19 @@ impl Server {
         }
     }
 
+    pub fn halt(&self) {
+        self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    
+    pub fn resume(&self) {
+        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 
     fn handle_stop_sign(&mut self, stopsign: StopSign, flag: bool) {
-
+        if stopsign.next_config.configuration_id <= *CONFIG_ID {
+            println!("Ignoring outdated StopSign. Current: {}, Received: {}", *CONFIG_ID, stopsign.next_config.configuration_id);
+            return;
+        }
         // Check if the new configuration is more recent and this node is in it.
         if stopsign.next_config.configuration_id > *CONFIG_ID
 	            && stopsign.next_config.nodes.contains(&MY_PID) {
@@ -234,52 +299,35 @@ impl Server {
 
             // Reinitialize persistent storage with the new configuration.
             let persistent_storage = PersistentStorage::new(PersistentStorageConfig::with_path(new_storage.clone()));
+           
             let current_config = ServerConfig { pid: *MY_PID, ..Default::default() };
             let new_instance = stopsign.next_config.build_for_server(current_config, persistent_storage);
 
             if let Ok(new_omni) = new_instance {
-                println!("Reconfiguration complete: new OmniPaxos instance is ready.");
+                println!("Reconfiguration, after addition of new pod ");
                 self.omni_paxos = new_omni;
                 self.database = Database::new(&new_db);
                 self.last_decided_idx = 0;
-                self.current_heartbeats.clear();
+                self.current_heartbeats.clear();   
                 self.expired_nodes.clear();
+                println!("Requesting log sync after reconfiguration...");
+                //self.omni_paxos.reconnected(*MY_PID);
                 self.resume();
-                println!("Reconfiguration successful; restarting process to load new config...");
+                println!("restarting process to load new config...");
                 std::process::exit(1);
             }
         }
     }
 
-    pub fn halt(&self) {
-        self.running.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-    
-    pub fn resume(&self) {
-        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-
-   // Polls environment variables for a new configuration.
-    // Returns Some((new_nodes, new_config_id)) if CONFIG_ID is higher than the current one.
-    fn poll_new_config(&self) -> Option<(Vec<u64>, u32)> {
-        if let (Ok(nodes_str), Ok(config_str)) = (env::var("NODES"), env::var("CONFIG_ID")) {
-            if let (Ok(new_nodes), Ok(new_config_id)) = (serde_json::from_str::<Vec<u64>>(&nodes_str), config_str.parse::<u32>()) {
-                if new_config_id > *CONFIG_ID {
-                    println!("New configuration detected: nodes={:?}, config_id={}", new_nodes, new_config_id);
-                    return Some((new_nodes, new_config_id));
-                }
-            }
-        }
-        None
-    }
-    
-    
+   
 
     pub(crate) async fn run(&mut self) {
         let mut msg_interval = time::interval(Duration::from_millis(1));
         let mut tick_interval = time::interval(Duration::from_millis(10));
-        let mut reconfig_interval = time::interval(Duration::from_millis(10));
+
+         // 🚀 Ensure all nodes sync on startup
+        self.request_log_sync_from_leader().await;
+
         while self.running.load(std::sync::atomic::Ordering::Relaxed) {
             tokio::select! {
                 biased;
@@ -287,40 +335,11 @@ impl Server {
                     self.process_incoming_msgs().await;
                     self.send_outgoing_msgs().await;
                     self.handle_decided_entries().await;
-
-                     // Ensure leader election if necessary
-                //     if self.omni_paxos.get_current_leader().is_none() {
-                //         println!(" No leader found. Initiating election...");
-                //         self.omni_paxos.initiate_election.tick();
-                // }
-
-
                 },
-                _reconfig_interval.tick() =>{
-
-                    // Poll for updated configuration in code.
-                    if let Some((new_nodes, new_config_id)) = self.poll_new_config() {
-                        println!("Automatic config change detected: nodes={:?}, config_id={}", new_nodes, new_config_id);
-                        // Build new configuration based on polled values.
-                        let new_cluster = ClusterConfig {
-                            configuration_id: new_config_id,
-                            nodes: new_nodes,
-                            ..Default::default()
-                        };
-                        // Trigger reconfiguration automatically.
-                        self.omni_paxos.reconfigure(new_cluster, None)
-                            .expect("Automatic reconfiguration failed");
-                    }
-
-                },
+   
                 _ = tick_interval.tick() => {
                     self.omni_paxos.tick();
-		            let leader = self.omni_paxos.get_current_leader();
-                    if let Some((leader_id, _)) = self.omni_paxos.get_current_leader() {
-                        println!("Node {} is leader.", leader_id);
-                    } else {
-                        println!("No leader detected.");
-                    }
+		        
                     let now = Instant::now();
                     let expired_nodes: Vec<u64> = self.current_heartbeats
                         .iter()
@@ -357,7 +376,6 @@ impl Server {
                                 }
                             } 
                         }
-    
                         println!(" Reconnecting node {}...", *MY_PID);
                         self.omni_paxos.reconnected(*MY_PID);
                     }

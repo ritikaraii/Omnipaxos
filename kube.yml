@@ -147,7 +147,7 @@ spec:
       restartPolicy: Always  # Ensures pod restarts instead of fresh creation
       containers:
         - name: kv-store
-          image: ritikaanand/kvsdemo:v5.6  # Replace with your actual image
+          image: ritikaanand/kvsdemo:v10.1  # Replace with your actual image
           imagePullPolicy: Always
           env:
             - name: NODES
@@ -191,4 +191,28 @@ spec:
         storageClassName: standard
         resources:
           requests:
-            storage: 1Gi
+            storage: 11Gi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-watcher
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-watcher-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: pod-watcher
+  apiGroup: rbac.authorization.k8s.io

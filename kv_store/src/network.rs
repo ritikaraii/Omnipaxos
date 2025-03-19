@@ -10,8 +10,6 @@ use tokio::{
     time::{timeout, Duration}
 };
 
-use std::io::ErrorKind;
-
 use crate::{kv::KVCommand, server::APIResponse, NODES, PID as MY_PID};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +59,7 @@ impl Network {
         buf.clear();
         ret
     }
+
 
     /// Constructs a new Network instance and connects the Sockets.
     pub(crate) async fn new() -> Self {

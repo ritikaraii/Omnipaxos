@@ -6,6 +6,7 @@ use std::env;
 use std::sync::Arc;
 use std::fs;
 use tokio::sync::Mutex;
+use crate::trigger::Trigger;
 use tokio;
 
 #[macro_use]
@@ -15,6 +16,7 @@ mod database;
 mod kv;
 mod network;
 mod server;
+mod trigger;
 
 lazy_static! {
     pub static ref NODES: Vec<u64> = {
@@ -40,7 +42,7 @@ lazy_static! {
     };
 }
 
-// ✅ Define PersistentStorage type
+// Define PersistentStorage type
 type OmniPaxosKV = OmniPaxos<KVCommand, PersistentStorage<KVCommand>>;
 
 #[tokio::main]
@@ -64,7 +66,7 @@ async fn main() {
         cluster_config,
     };
 
-    // ✅ Prevent RocksDB Lock Errors
+    //  Prevent RocksDB Lock Errors
     let storage_path = format!("/data/omnipaxos_storage_{}_{}", *PID, *CONFIG_ID);
     //let backup_path = format!("/data/omnipaxos_storage_backup_{}", *PID);
     let db_path = format!("data/db{}",*CONFIG_ID);
@@ -82,30 +84,17 @@ async fn main() {
 
 
     let mut persistent_storage;
-loop {
-    persistent_storage = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
-    if let PersistentStorage { .. } = persistent_storage {
-        println!("✅ PersistentStorage initialized successfully.");
-        break;
+    loop {
+        persistent_storage = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
+        if let PersistentStorage { .. } = persistent_storage {
+            println!("PersistentStorage initialized successfully.");
+            break;
     }
-    println!("⚠️ WARNING: PersistentStorage failed to open. Retrying in 5 seconds...");
+    println!(" WARNING: PersistentStorage failed to open. Retrying in 5 seconds...");
     std::thread::sleep(std::time::Duration::from_secs(5));
 }
 
-    // // ✅ Manually check if PersistentStorage fails without using `Err` or `Ok`
-    // let persistent_storage_primary = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
-
-    //  persistent_storage = if let PersistentStorage { .. } = persistent_storage_primary {
-    //     println!("✅ Primary PersistentStorage opened successfully.");
-    //     persistent_storage_primary
-    // } else {
-    //     println!("⚠️ WARNING: Primary storage failed...");
-       
-    //         panic!(" CRITICAL: Failed to open both primary PersistentStorage!");
-        
-    // };
-
-    println!("✅ PersistentStorage initialized successfully.");
+    println!("PersistentStorage initialized successfully.");
 
     //  Initialize OmniPaxos and Ensure Cluster Recovery
     let omni_paxos_result = op_config.clone().build(persistent_storage);
@@ -113,8 +102,16 @@ loop {
     if let Ok(omni_paxos) = omni_paxos_result {
         //  Use Arc<Mutex<T>> to allow multiple async tasks to access `server`
         let server = Arc::new(Mutex::new(Server::new(omni_paxos, &db_path).await));
-
         
+
+        // Start trigger watcher as a background task
+        tokio::spawn({
+            let server_clone = Arc::clone(&server);
+            async move {
+                let mut server = server_clone.lock().await;
+                Trigger::poll_and_trigger_reconfig(&mut *server).await;
+            }
+        });
          //  Start the server
         server.lock().await.run().await;
     } else {
