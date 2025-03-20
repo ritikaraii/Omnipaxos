@@ -210,7 +210,7 @@ impl Server {
 	            && stopsign.next_config.nodes.contains(&MY_PID) {
 
             println!("Initiating configuration transition...");
-            self.halt(); // Stop accepting new commands on the old configuration.
+            self.running.store(false, std::sync::atomic::Ordering::Relaxed); // Stop accepting new commands on the old configuration.
             
             let cur_idx = self.omni_paxos.get_decided_idx();
             println!("Snapshot pre-transition: {:?}", self.omni_paxos.read_decided_suffix(0).unwrap());
@@ -246,19 +246,11 @@ impl Server {
                 self.last_decided_idx = 0;
                 self.current_heartbeats.clear();
                 self.expired_nodes.clear();
-                self.resume();
+                self.running.store(true, std::sync::atomic::Ordering::Relaxed);
                 println!("Reconfiguration was successful");
                 std::process::exit(1);
             }
         }
-    }
-
-    pub fn halt(&self) {
-        self.running.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-    
-    pub fn resume(&self) {
-        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
 

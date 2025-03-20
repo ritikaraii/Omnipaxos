@@ -64,7 +64,7 @@ async fn main() {
         cluster_config,
     };
 
-    // ✅ Prevent RocksDB Lock Errors
+    //  Prevent RocksDB Lock Errors
     let storage_path = format!("/data/omnipaxos_storage_{}_{}", *PID, *CONFIG_ID);
     //let backup_path = format!("/data/omnipaxos_storage_backup_{}", *PID);
     let db_path = format!("data/db{}",*CONFIG_ID);
@@ -85,10 +85,10 @@ async fn main() {
 loop {
     persistent_storage = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
     if let PersistentStorage { .. } = persistent_storage {
-        println!("✅ PersistentStorage initialized successfully.");
+        println!(" PersistentStorage initialized successfully.");
         break;
     }
-    println!("⚠️ WARNING: PersistentStorage failed to open. Retrying in 5 seconds...");
+    println!(" WARNING: PersistentStorage failed to open. Retrying in 5 seconds...");
     std::thread::sleep(std::time::Duration::from_secs(5));
 }
 
@@ -105,7 +105,7 @@ loop {
         
     // };
 
-    println!("✅ PersistentStorage initialized successfully.");
+    println!(" PersistentStorage initialized successfully.");
 
     //  Initialize OmniPaxos and Ensure Cluster Recovery
     let omni_paxos_result = op_config.clone().build(persistent_storage);
