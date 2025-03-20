@@ -26,6 +26,7 @@ services:
       PID: 1
     depends_on:
       - network-actor
+    restart: always
 
   s2:
     build: ./kv_store/
@@ -36,6 +37,7 @@ services:
       PID: 2
     depends_on:
       - network-actor
+    restart: always
 
   s3:
     build: ./kv_store/
@@ -46,3 +48,4 @@ services:
       PID: 3
     depends_on:
       - network-actor
+    restart: always

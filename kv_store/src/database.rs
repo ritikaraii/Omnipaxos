@@ -10,6 +10,7 @@ impl Database {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let rocks_db = DB::open(&opts, path).unwrap();
+        // let database = Database::new(format!("db_{}", *PID).as_str());
         Self { rocks_db }
     }
 
@@ -24,6 +25,7 @@ impl Database {
                 None
             }
             KVCommand::Get(key) => self.get(key.as_str()),
+            _ => unimplemented!(),
         }
     }
 

@@ -24,6 +24,13 @@ Attach to the client (`network-actor`) to send requests to the cluster:
 $ docker attach network-actor
 ```
 
+# Some Commands
+
+```bash
+kubectl delete all --all
+kubectl delete configmap kv-config
+```
+
 It is also possible to run with kubernetes:
 ```bash
 $ kubectl create -f kube.yml 
@@ -32,6 +39,28 @@ Attach to the client (`network-actor`) to send requests to the cluster:
 ```bash
 $ kubectl attach -it net
 ```
+# Reconfiguration
+
+# 1. Patch the ConfigMap to include the new node (for example, add node 4)
+kubectl patch configmap kv-config --type merge -p '{"data":{"NODES":"[1,2,3,4]"}}'
+$ kubectl patch configmap kv-config -n default --type merge --patch-file=patch.json
+
+# 2. Patch the ConfigMap to update the configuration ID (increment from, say, 1 to 2)
+
+kubectl patch configmap kv-config --type merge -p '{"data":{"CONFIG_ID":"2"}}'
+$ kubectl patch configmap kv-config --type merge --patch-file=patchconfig.json
+
+
+# 3. Scale the StatefulSet to 4 replicas (to start the new pod)
+$ kubectl scale statefulset kv-store --replicas=4
+
+# 4. Replicate command
+$ reconfigure 4
+
+# To check the config-id running 
+$ kubectl get configmap kv-config -n default -o yaml
+$ kubectl get configmap kv-config -n default -o jsonpath="{.data.CONFIG_ID}"
+
 
 
 ### Client
