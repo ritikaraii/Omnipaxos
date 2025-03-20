@@ -35,11 +35,12 @@ pub enum APIResponse {
 pub struct Server {
     pub omni_paxos: OmniPaxosKV,
     pub network: Network,
+    pub running: Arc<AtomicBool>,
     pub database: Database,
     pub last_decided_idx: u64,
     pub current_heartbeats: HashMap<u64, Instant>,
     pub expired_nodes: HashSet<u64>,
-    pub running: Arc<AtomicBool>,
+    
     
 }
 
@@ -47,12 +48,13 @@ impl Server {
     pub async fn new(omni_paxos: OmniPaxosKV, db_path: &str) -> Self {
         Server {
             omni_paxos,
+            running: Arc::new(AtomicBool::new(true))
             network: Network::new().await,
             database: Database::new(db_path),
             last_decided_idx: 0,
             current_heartbeats: HashMap::new(),
             expired_nodes: HashSet::new(),
-            running: Arc::new(AtomicBool::new(true))
+            
             
         }
     }
@@ -238,14 +240,14 @@ impl Server {
             let new_instance = stopsign.next_config.build_for_server(current_config, persistent_storage);
 
             if let Ok(new_omni) = new_instance {
-                println!("Reconfiguration complete: new OmniPaxos instance is ready.");
+                println!("Reconfiguration complete, Omnipaxos Starting");
                 self.omni_paxos = new_omni;
                 self.database = Database::new(&new_db);
                 self.last_decided_idx = 0;
                 self.current_heartbeats.clear();
                 self.expired_nodes.clear();
                 self.resume();
-                println!("Reconfiguration successful; restarting process to load new config...");
+                println!("Reconfiguration was successful");
                 std::process::exit(1);
             }
         }
@@ -279,7 +281,6 @@ impl Server {
     pub(crate) async fn run(&mut self) {
         let mut msg_interval = time::interval(Duration::from_millis(1));
         let mut tick_interval = time::interval(Duration::from_millis(10));
-        let mut reconfig_interval = time::interval(Duration::from_millis(10));
         while self.running.load(std::sync::atomic::Ordering::Relaxed) {
             tokio::select! {
                 biased;
@@ -296,23 +297,7 @@ impl Server {
 
 
                 },
-                _reconfig_interval.tick() =>{
-
-                    // Poll for updated configuration in code.
-                    if let Some((new_nodes, new_config_id)) = self.poll_new_config() {
-                        println!("Automatic config change detected: nodes={:?}, config_id={}", new_nodes, new_config_id);
-                        // Build new configuration based on polled values.
-                        let new_cluster = ClusterConfig {
-                            configuration_id: new_config_id,
-                            nodes: new_nodes,
-                            ..Default::default()
-                        };
-                        // Trigger reconfiguration automatically.
-                        self.omni_paxos.reconfigure(new_cluster, None)
-                            .expect("Automatic reconfiguration failed");
-                    }
-
-                },
+            
                 _ = tick_interval.tick() => {
                     self.omni_paxos.tick();
 		            let leader = self.omni_paxos.get_current_leader();
@@ -328,7 +313,7 @@ impl Server {
                         .map(|(sender_id, _)| *sender_id)
                         .collect();
 
-                    // Mark nodes as expired if they aren't already
+                   //Expired nodes to remove
                     for sender_id in &expired_nodes {
                         if !self.expired_nodes.contains(sender_id) {
                             println!("Node {} is unresponsive. Marking for reconnection...", sender_id);
@@ -336,13 +321,13 @@ impl Server {
                         }
                     }
 
-                    // Keep retrying reconnection for expired nodes
+                
                     for sender_id in &self.expired_nodes {
-                        println!("Trying to reconnect to node {}...", sender_id);
+                        println!("Trying to reconnect {}...", sender_id);
                         self.omni_paxos.reconnected(*sender_id);
                     }
 
-                    // Remove expired heartbeats from tracking
+                    // Remove expired heartbeats, as they are no longer taking part
                     for sender_id in expired_nodes {
                         self.current_heartbeats.remove(&sender_id);
                     }

@@ -10,7 +10,9 @@ We used the following:
 - Docker v.4.19.0 (for demo)
 - Rust 1.71.0 (for development)
 
-
+## Contribution and Contributor
+1. Ritika Ritika -  Coding, Reporting, Testing
+2. Adrián Spencer Sayas - 
 
 # Demos
 Build images and start containers in detached mode:
@@ -39,29 +41,6 @@ Attach to the client (`network-actor`) to send requests to the cluster:
 ```bash
 $ kubectl attach -it net
 ```
-# Reconfiguration
-
-# 1. Patch the ConfigMap to include the new node (for example, add node 4)
-kubectl patch configmap kv-config --type merge -p '{"data":{"NODES":"[1,2,3,4]"}}'
-$ kubectl patch configmap kv-config -n default --type merge --patch-file=patch.json
-
-# 2. Patch the ConfigMap to update the configuration ID (increment from, say, 1 to 2)
-
-kubectl patch configmap kv-config --type merge -p '{"data":{"CONFIG_ID":"2"}}'
-$ kubectl patch configmap kv-config --type merge --patch-file=patchconfig.json
-
-
-# 3. Scale the StatefulSet to 4 replicas (to start the new pod)
-$ kubectl scale statefulset kv-store --replicas=4
-
-# 4. Replicate command
-$ reconfigure 4
-
-# To check the config-id running 
-$ kubectl get configmap kv-config -n default -o yaml
-$ kubectl get configmap kv-config -n default -o jsonpath="{.data.CONFIG_ID}"
-
-
 
 ### Client
 Example network-actor CLI command:
@@ -117,3 +96,69 @@ $ docker unpause s2
 $ docker attach s3
 ```
 2. Propose 5 commands from the client and see how the entries get squashed into one snapshotted entry on the server. Propose 5 more commands to see the 5 new entries get snapshotted and merged with the old snapshot.
+
+
+ # Testing Carried out -
+1. In case minikube is already running we need to do fresh deployement
+```bash
+$ minikube delete --all --purge  
+```
+2. Starting the code 
+```bash
+$ minikube start  
+```
+3. Deploying the code on Kubernetes - https://hub.docker.com/repository/docker/ritikaanand
+```bash
+$ docker build -t ritikaanand/kvsdemo:v10.1 .
+$ docker push ritikaanand/kvsdemo:v10.1
+```
+4. Deploying yml file and checking nodes and pods
+```bash
+$ kubectl create -f kube.yml
+$ kubectl get pods - 4 pods 1 serves as client the rest 3 as server
+$ kubectl get nodes
+```
+5. PUT, GET, DELETE commands on/from the DB through pods
+```bash
+$ put a 1
+$ get a 8001
+$ delete a
+```
+6. RECONFIGUARTION logic testing
+
+# a. Patch the ConfigMap to include the new node (for example, add node 4)
+```bash
+$ kubectl patch configmap kv-config -n default --type merge --patch-file=patch.json
+```
+# b. Patch the ConfigMap to update the configuration ID (increment from, say, 1 to 2)
+```bash
+$ kubectl patch configmap kv-config --type merge --patch-file=patchconfig.json
+```
+
+# c. Scale the StatefulSet to 4 replicas (to start the new pod)
+```bash
+$ kubectl scale statefulset kv-store --replicas=4
+```
+# d. Replicate command
+```bash
+$ reconfigure 4
+```
+7. Autoreconfiguration is also enabled using pod watcher.
+
+# a. Patch the ConfigMap to include the new node (for example, add node 4)
+```bash
+$ kubectl patch configmap kv-config -n default --type merge --patch-file=patch.json
+```
+# b. Patch the ConfigMap to update the configuration ID (increment from, say, 1 to 2)
+```bash
+$ kubectl patch configmap kv-config --type merge --patch-file=patchconfig.json
+```
+
+# c. Scale the StatefulSet to 4 replicas (to start the new pod)
+```bash
+$ kubectl scale statefulset kv-store --replicas=4
+```
+# To check the config-id running 
+$ kubectl get configmap kv-config -n default -o yaml
+$ kubectl get configmap kv-config -n default -o jsonpath="{.data.CONFIG_ID}"
+
