@@ -40,6 +40,7 @@ pub struct Server {
     pub last_decided_idx: u64,
     pub current_heartbeats: HashMap<u64, Instant>,
     pub expired_nodes: HashSet<u64>,
+    // Trigger function to be added 
     
     
 }
@@ -95,7 +96,7 @@ impl Server {
                     }
                     cmd => {
                         println!(" Received PUT/DELETE command on Node {}: {:?}", *MY_PID, cmd);
-                        // Appending the command to check if it fails or is successful
+                        
                         if let Err(e) = self.omni_paxos.append(cmd) {
                             println!(" Failed to append command on Node {}: {:?}", *MY_PID, e);
                         } else {
@@ -205,7 +206,7 @@ impl Server {
 
     fn handle_stop_sign(&mut self, stopsign: StopSign, flag: bool) {
 
-        // Check if the new configuration is more recent and this node is in it.
+        
         if stopsign.next_config.configuration_id > *CONFIG_ID
 	            && stopsign.next_config.nodes.contains(&MY_PID) {
 
