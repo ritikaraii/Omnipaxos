@@ -56,7 +56,6 @@ impl Server {
             current_heartbeats: HashMap::new(),
             expired_nodes: HashSet::new(),
             
-            
         }
     }
     async fn process_incoming_msgs(&mut self) {
@@ -195,7 +194,7 @@ impl Server {
                         "StopSign received: new config id: {:?}, flag: {}. My config id: {:?}",
                         stopsign.next_config.configuration_id, boolval, *CONFIG_ID
                     );                    
-		    self.handle_stop_sign(stopsign, boolval);
+		            self.handle_stop_sign(stopsign, boolval);
                     println!("Handled stopsign with new configuration.");            
                 }
                 _ => {}
@@ -205,7 +204,6 @@ impl Server {
 
 
     fn handle_stop_sign(&mut self, stopsign: StopSign, flag: bool) {
-
         
         if stopsign.next_config.configuration_id > *CONFIG_ID
 	            && stopsign.next_config.nodes.contains(&MY_PID) {
@@ -270,7 +268,6 @@ impl Server {
     }
     
     
-
     pub(crate) async fn run(&mut self) {
         let mut msg_interval = time::interval(Duration::from_millis(1));
         let mut tick_interval = time::interval(Duration::from_millis(10));
@@ -326,8 +323,7 @@ impl Server {
                     }
                         
                     if self.omni_paxos.get_current_leader().is_none() {
-                        println!(" No leader detected! Ensuring logs are synced before reconnecting node {}...", *MY_PID);
-    
+                        println!(" No leader detected, Ensuring logs are synced before reconnecting node {}...", *MY_PID);
                         if self.omni_paxos.read_decided_suffix(0).is_none() {
                             if self.omni_paxos.get_current_leader().map(|(leader_id, _)| leader_id) == Some(*MY_PID) {
                                 if let Err(e) = self.omni_paxos.trim(Some(self.last_decided_idx as usize)) {
@@ -335,7 +331,6 @@ impl Server {
                                 }
                             } 
                         }
-    
                         println!(" Reconnecting node {}...", *MY_PID);
                         self.omni_paxos.reconnected(*MY_PID);
                     }

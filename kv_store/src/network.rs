@@ -10,8 +10,6 @@ use tokio::{
     time::{timeout, Duration}
 };
 
-use std::io::ErrorKind;
-
 use crate::{kv::KVCommand, server::APIResponse, NODES, PID as MY_PID};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +139,7 @@ impl Network {
                         }
                     
                         Err(_) => {
-                            println!("Timeout waiting for data from {}", cloning);
+                            println!("Timeout waiting {}", cloning);
                         }
                     }
                 }

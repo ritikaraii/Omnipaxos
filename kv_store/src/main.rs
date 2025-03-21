@@ -40,7 +40,7 @@ lazy_static! {
     };
 }
 
-// ✅ Define PersistentStorage type
+//  Define PersistentStorage type
 type OmniPaxosKV = OmniPaxos<KVCommand, PersistentStorage<KVCommand>>;
 
 #[tokio::main]
@@ -92,14 +92,14 @@ loop {
     std::thread::sleep(std::time::Duration::from_secs(5));
 }
 
-    // // ✅ Manually check if PersistentStorage fails without using `Err` or `Ok`
+    // //  Manually check if PersistentStorage fails without using `Err` or `Ok`
     // let persistent_storage_primary = PersistentStorage::open(PersistentStorageConfig::with_path(storage_path.clone()));
 
     //  persistent_storage = if let PersistentStorage { .. } = persistent_storage_primary {
-    //     println!("✅ Primary PersistentStorage opened successfully.");
+    //     println!(" Primary PersistentStorage opened successfully.");
     //     persistent_storage_primary
     // } else {
-    //     println!("⚠️ WARNING: Primary storage failed...");
+    //     println!(" WARNING: Primary storage failed...");
        
     //         panic!(" CRITICAL: Failed to open both primary PersistentStorage!");
         
